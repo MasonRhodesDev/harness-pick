@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""harness-pick: one typed decision on the OpenAI Decisions API (gpt-6-luna) over the harnesses installed on this machine.
+
+Usage: harness-pick "<task description>" [--json] [--refresh]
+       harness-pick --options          # the options the decider is offered here
+       harness-pick --status           # whether the catalog and map exist, and their dates
+
+Reads references/catalog.json (written by the update procedure in SKILL.md; never shipped) and the inventory from
+scripts/harness-inventory (installed harnesses and their configured models, cached 24h; --refresh re-probes).
+Key: OPENAI_API_KEY if set, else the key codex is signed in with (~/.codex/auth.json). Keys are never printed.
+Exit codes: 0 pick made; 1 no answer or API error (decide by the map); 2 usage or no key; 3 no catalog yet (run the update first).
+"""
+import json, os, re, subprocess, sys, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REFS = os.path.join(os.path.dirname(HERE), "references")
+CATALOG = os.path.join(REFS, "catalog.json")
+MAP = os.path.join(REFS, "harness-selection.md")
+CONTEXT = os.path.join(REFS, "context.md")
+NO_CATALOG = "no catalog yet: this skill ships no presets. Run the update procedure first (/harness-pick update) to build references/catalog.json and references/harness-selection.md from current evidence and this machine's harnesses."
+
+def key() -> str:
+    k = os.environ.get("OPENAI_API_KEY")
+    if k:
+        return k
+    try:
+        return json.load(open(os.path.expanduser("~/.codex/auth.json"))).get("OPENAI_API_KEY", "") or ""
+    except Exception:
+        return ""
+
+def inventory(refresh: bool) -> dict:
+    try:
+        out = subprocess.run([sys.executable, os.path.join(HERE, "harness-inventory")] + (["--refresh"] if refresh else []),
+                             capture_output=True, text=True, timeout=120).stdout
+        return json.loads(out)
+    except Exception:
+        return {"harnesses": []}
+
+def load_catalog() -> list:
+    try:
+        cat = json.load(open(CATALOG))
+    except FileNotFoundError:
+        return []
+    opts = cat.get("options", cat) if isinstance(cat, dict) else cat
+    return [o for o in opts if isinstance(o, dict) and o.get("value") and o.get("description")]
+
+def choices(catalog: list, inv: dict):
+    by = {h["name"]: h for h in inv.get("harnesses", [])}
+    offered, lines = [], []
+    for c in catalog:
+        needs = c.get("needs") or {}
+        harness, pat = needs.get("harness"), needs.get("model")
+        if not harness:
+            offered.append({"value": c["value"], "description": c["description"]}); continue
+        h = by.get(harness)
+        if not h:
+            continue
+        models = h.get("models") or []
+        hits = [m for m in models if re.search(pat, m)] if pat else models
+        if models and pat and not hits:
+            continue
+        extra = f' Installed: {h.get("version") or harness}; configured models matching: {", ".join(hits[:6]) or "(unlisted)"}; default {h.get("default_model") or "(program default)"}.'
+        offered.append({"value": c["value"], "description": c["description"] + extra})
+    for h in inv.get("harnesses", []):
+        ms = ", ".join((h.get("models") or [])[:8]) or "(models unknown)"
+        lines.append(f'- {h["name"]} {h.get("version", "")}: default {h.get("default_model") or "(program default)"}; {ms}')
+    return offered, "\n".join(lines)
+
+def status() -> int:
+    for label, p in (("catalog", CATALOG), ("map", MAP), ("context", CONTEXT)):
+        if os.path.exists(p):
+            print(f"{label}: {p} (updated {time.strftime('%Y-%m-%d', time.localtime(os.stat(p).st_mtime))})")
+        else:
+            print(f"{label}: missing")
+    inv = inventory(False)
+    print("harnesses: " + (", ".join(h["name"] for h in inv.get("harnesses", [])) or "none detected"))
+    return 0 if os.path.exists(CATALOG) else 3
+
+def main() -> int:
+    argv = sys.argv[1:]
+    args = [a for a in argv if not a.startswith("--")]
+    if "--status" in argv:
+        return status()
+    catalog = load_catalog()
+    if not catalog:
+        print(NO_CATALOG, file=sys.stderr); return 3
+    if "--options" in argv:
+        offered, avail = choices(catalog, inventory("--refresh" in argv))
+        print(avail); print()
+        for c in offered:
+            print(f"- {c['value']}: {c['description']}")
+        return 0
+    if not args:
+        print(__doc__); return 2
+    k = key()
+    if not k:
+        print("no OpenAI key: set OPENAI_API_KEY or sign codex in", file=sys.stderr); return 2
+    offered, avail = choices(catalog, inventory("--refresh" in argv))
+    if len(offered) < 2:
+        print("fewer than two options are installed here; decide by the map", file=sys.stderr); return 1
+    context = ""
+    try:
+        context = open(CONTEXT).read().strip()
+    except Exception:
+        pass
+    task = " ".join(args)
+    body = {
+        "model": "gpt-6-luna",
+        "input": "Task to assign to an AI coding harness." + (f"\n\nContext: {context}" if context else "")
+                 + "\n\nHarnesses installed on this machine and the models each is configured for:\n" + (avail or "(none detected)")
+                 + "\n\nTask: " + task,
+        "questions": [{"type": "choice", "name": "harness",
+                       "instructions": "Pick the harness and model that will do this task best on the first attempt, judged by the kind of work (code change, terminal and CI work, documentation, review, bulk edit, classification), not by cost. Only the listed options are installed; prefer one whose configured models include the tier the task needs.",
+                       "choices": offered}],
+    }
+    import urllib.request, urllib.error
+    req = urllib.request.Request("https://api.openai.com/v1/decisions", data=json.dumps(body).encode(), method="POST",
+                                 headers={"Authorization": f"Bearer {k}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            out = json.load(r)
+    except urllib.error.HTTPError as e:
+        print(f"HTTP {e.code}: {e.read().decode()[:300]}", file=sys.stderr); return 1
+    except Exception as e:
+        print(f"request failed: {e}", file=sys.stderr); return 1
+    if "--json" in argv:
+        print(json.dumps(out, indent=1)); return 0
+    ans = next((a for a in out.get("answers", []) if a.get("name") == "harness"), None)
+    if not ans or ans.get("type") != "choice":
+        print("refusal or no answer; decide by the map"); print(json.dumps(out)[:400]); return 1
+    probs = sorted(((p["value"], p["probability"]) for p in ans.get("probabilities", [])), key=lambda x: -x[1])
+    conf = ans.get("confidence")
+    if conf is None and probs:
+        conf = probs[0][1]
+    print(f"pick: {ans.get('choice')} (confidence {conf:.2f})" if isinstance(conf, (int, float)) else f"pick: {ans.get('choice')}")
+    if len(probs) > 1:
+        print(f"runner-up: {probs[1][0]} ({probs[1][1]:.2f})")
+    if isinstance(conf, (int, float)) and conf < 0.6:
+        print("low confidence: decide by the map and say so")
+    u = out.get("usage", {})
+    print(f"tokens: {u.get('input_tokens', '?')} in")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

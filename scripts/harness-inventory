@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""harness-inventory: which AI coding harnesses are installed here and which models each is configured for.
+
+Usage: harness-inventory [--refresh] [--text]
+Prints JSON: {"at": iso, "harnesses": [{"name", "bin", "version", "default_model", "models": [...], "source"}]}.
+Cached for 24h in ~/.cache/harness-pick/inventory.json; --refresh re-probes. Probes never print keys.
+"""
+import json, os, re, shutil, subprocess, sys, time
+
+CACHE = os.path.expanduser("~/.cache/harness-pick/inventory.json")
+TTL = 24 * 3600
+
+def run(cmd, timeout=30):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+    except Exception:
+        return ""
+
+def version(b):
+    v = run([b, "--version"], 15).strip().splitlines()
+    return v[0][:60] if v else ""
+
+def codex():
+    cfg = os.path.expanduser("~/.codex/config.toml")
+    default = ""
+    try:
+        m = re.search(r'^model\s*=\s*"([^"]+)"', open(cfg).read(), re.M)
+        default = m.group(1) if m else ""
+    except Exception:
+        pass
+    models = []
+    out = run(["codex", "debug", "models"], 40)
+    try:
+        models = [m["slug"] for m in json.loads(out)["models"] if m.get("visibility", "list") == "list"]
+    except Exception:
+        pass
+    return default, models, "~/.codex/config.toml and `codex debug models`"
+
+def claude():
+    default = ""
+    try:
+        d = json.load(open(os.path.expanduser("~/.claude/settings.json")))
+        default = d.get("model") or d.get("env", {}).get("ANTHROPIC_MODEL") or ""
+    except Exception:
+        pass
+    return default or "default", ["default", "fable", "opus", "sonnet", "haiku", "opusplan"], "~/.claude/settings.json; short names each the newest of its kind"
+
+def pi():
+    default = ""
+    try:
+        default = json.load(open(os.path.expanduser("~/.pi/agent/settings.json"))).get("defaultModel", "")
+    except Exception:
+        pass
+    models = []
+    for line in run(["pi", "--list-models"], 40).splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2 and not parts[0].startswith("provider"):
+            models.append(f"{parts[0]}/{parts[1]}")
+    return default, models, "~/.pi/agent/settings.json and `pi --list-models`"
+
+def cursor():
+    models = [l.strip().split()[0] for l in run(["cursor-agent", "--list-models"], 30).splitlines() if l.strip() and not l.lower().startswith(("available", "model"))]
+    return "", models[:40], "`cursor-agent --list-models`"
+
+def kimi():
+    default = ""
+    try:
+        m = re.search(r'^default_model\s*=\s*"([^"]+)"', open(os.path.expanduser("~/.kimi/config.toml")).read(), re.M)
+        default = m.group(1) if m else ""
+    except Exception:
+        pass
+    return default, [default] if default else [], "~/.kimi/config.toml"
+
+PROBES = {"claude": claude, "codex": codex, "pi": pi, "cursor-agent": cursor, "kimi": kimi}
+OTHERS = ["copilot", "gemini", "opencode", "droid", "qwen", "hermes", "agy", "grok", "kilo"]
+
+def probe():
+    out = []
+    for name, fn in PROBES.items():
+        b = shutil.which(name)
+        if not b:
+            continue
+        default, models, source = fn()
+        out.append({"name": name, "bin": b, "version": version(name), "default_model": default, "models": models, "source": source})
+    for name in OTHERS:
+        b = shutil.which(name)
+        if b:
+            out.append({"name": name, "bin": b, "version": version(name), "default_model": "", "models": [], "source": "presence only"})
+    return {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "harnesses": out}
+
+def load(refresh=False):
+    if not refresh:
+        try:
+            st = os.stat(CACHE)
+            if time.time() - st.st_mtime < TTL:
+                return json.load(open(CACHE))
+        except Exception:
+            pass
+    inv = probe()
+    os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+    json.dump(inv, open(CACHE, "w"), indent=1)
+    return inv
+
+def main():
+    inv = load("--refresh" in sys.argv)
+    if "--text" in sys.argv:
+        for h in inv["harnesses"]:
+            ms = ", ".join(h["models"][:12]) + (" ..." if len(h["models"]) > 12 else "")
+            print(f'{h["name"]} {h["version"]}: default {h["default_model"] or "(program default)"}; models {ms or "(unknown)"}')
+        return 0
+    print(json.dumps(inv, indent=1)); return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
