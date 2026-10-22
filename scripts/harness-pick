@@ -12,7 +12,7 @@ Exit codes: 0 pick made; 1 no answer or API error (decide by the map); 2 usage o
 """
 import json, os, re, subprocess, sys, time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))
 
 def home() -> str:
     """The skill's state lives in ONE place even when harnesses hold copies of the skill:
