@@ -40,6 +40,7 @@ scripts/harness-inventory --text   # installed harnesses and configured models
 ## How it chooses
 
 - Only installed harnesses are offered, each described with its version, matching configured models and default; the whole inventory goes into the decision input.
+- The decision weighs capability first and prefers the cheaper option when the quality gap is small, so the strongest tier wins only the tasks that need it.
 - The map's rows carry a figure and a date for every claim, and the evidence log on your machine is the tie-break.
 - Confidence under 0.6, a refusal or an outage means "decide by the map", and the skill says so.
 - Code review goes to a different model family from the author; a running task is never restarted to match a pick.

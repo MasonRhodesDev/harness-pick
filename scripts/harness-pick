@@ -64,7 +64,7 @@ def choices(catalog: list, inv: dict):
         needs = c.get("needs") or {}
         harness, pat = needs.get("harness"), needs.get("model")
         if not harness:
-            offered.append({"value": c["value"], "description": c["description"]}); continue
+            offered.append({"value": c["value"], "description": c["description"] + (f' Cost: {c["cost"]}.' if c.get("cost") else "")}); continue
         h = by.get(harness)
         if not h:
             continue
@@ -72,7 +72,7 @@ def choices(catalog: list, inv: dict):
         hits = [m for m in models if re.search(pat, m)] if pat else models
         if models and pat and not hits:
             continue
-        extra = f' Installed: {h.get("version") or harness}; configured models matching: {", ".join(hits[:6]) or "(unlisted)"}; default {h.get("default_model") or "(program default)"}.'
+        extra = (f' Cost: {c["cost"]}.' if c.get("cost") else "") + f' Installed: {h.get("version") or harness}; configured models matching: {", ".join(hits[:6]) or "(unlisted)"}; default {h.get("default_model") or "(program default)"}.'
         offered.append({"value": c["value"], "description": c["description"] + extra})
     for h in inv.get("harnesses", []):
         ms = ", ".join((h.get("models") or [])[:8]) or "(models unknown)"
@@ -123,7 +123,7 @@ def main() -> int:
                  + "\n\nHarnesses installed on this machine and the models each is configured for:\n" + (avail or "(none detected)")
                  + "\n\nTask: " + task,
         "questions": [{"type": "choice", "name": "harness",
-                       "instructions": "Pick the harness and model that will do this task best on the first attempt, judged by the kind of work (code change, terminal and CI work, documentation, review, bulk edit, classification), not by cost. Only the listed options are installed; prefer one whose configured models include the tier the task needs.",
+                       "instructions": "Pick the harness and model that will do this task best on the first attempt, judged by the kind of work (code change, terminal and CI work, documentation, review, bulk edit, classification). When a cheaper option would do the task about as well, pick the cheaper one; pay for the stronger tier only when the task needs it. Only the listed options are installed; prefer one whose configured models include the tier the task needs.",
                        "choices": offered}],
     }
     import urllib.request, urllib.error
