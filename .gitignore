@@ -2,5 +2,6 @@
 references/harness-selection.md
 references/catalog.json
 references/context.md
+references/decisions.jsonl
 scripts/__pycache__/
 .thread/
