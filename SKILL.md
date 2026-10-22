@@ -37,7 +37,7 @@ Output: `pick`, its confidence, the runner-up, and the input tokens. `--json` pr
 
 ## Record
 
-Append one row to the evidence log in `references/harness-selection.md` (newest first) when the pick is made and again when the outcome is known (review findings, merges, restarts). The log is the only evidence specific to this machine; the public benchmarks are snapshots.
+Every call of the decider is appended to `references/decisions.jsonl` (time, task, pick, confidence, top three, working directory) on its own. Append one row to the evidence log in `references/harness-selection.md` (newest first) when the pick is made and again when the outcome is known (review findings, merges, restarts). The log is the only evidence specific to this machine; the public benchmarks are snapshots.
 
 ## Calibration tasks
 

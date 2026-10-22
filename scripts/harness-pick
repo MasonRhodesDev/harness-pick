@@ -30,6 +30,7 @@ REFS = os.path.join(home(), "references")
 CATALOG = os.path.join(REFS, "catalog.json")
 MAP = os.path.join(REFS, "harness-selection.md")
 CONTEXT = os.path.join(REFS, "context.md")
+DECISIONS = os.path.join(REFS, "decisions.jsonl")
 NO_CATALOG = "no catalog yet: this skill ships no presets. Run the update procedure first (/harness-pick update) to build references/catalog.json and references/harness-selection.md from current evidence and this machine's harnesses."
 
 def key() -> str:
@@ -79,8 +80,19 @@ def choices(catalog: list, inv: dict):
         lines.append(f'- {h["name"]} {h.get("version", "")}: default {h.get("default_model") or "(program default)"}; {ms}')
     return offered, "\n".join(lines)
 
+def record(task: str, ans) -> None:
+    """Every decision is appended to references/decisions.jsonl so picks accumulate without anyone copying them by hand."""
+    probs = sorted(((p["value"], p["probability"]) for p in (ans or {}).get("probabilities", [])), key=lambda x: -x[1])
+    row = {"at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "task": task, "pick": (ans or {}).get("choice"),
+           "confidence": (ans or {}).get("confidence"), "top": probs[:3], "cwd": os.getcwd()}
+    try:
+        with open(DECISIONS, "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except Exception:
+        pass
+
 def status() -> int:
-    for label, p in (("catalog", CATALOG), ("map", MAP), ("context", CONTEXT)):
+    for label, p in (("catalog", CATALOG), ("map", MAP), ("context", CONTEXT), ("decisions", DECISIONS)):
         if os.path.exists(p):
             print(f"{label}: {p} (updated {time.strftime('%Y-%m-%d', time.localtime(os.stat(p).st_mtime))})")
         else:
@@ -136,9 +148,10 @@ def main() -> int:
         print(f"HTTP {e.code}: {e.read().decode()[:300]}", file=sys.stderr); return 1
     except Exception as e:
         print(f"request failed: {e}", file=sys.stderr); return 1
+    ans = next((a for a in out.get("answers", []) if a.get("name") == "harness"), None)
+    record(task, ans)
     if "--json" in argv:
         print(json.dumps(out, indent=1)); return 0
-    ans = next((a for a in out.get("answers", []) if a.get("name") == "harness"), None)
     if not ans or ans.get("type") != "choice":
         print("refusal or no answer; decide by the map"); print(json.dumps(out)[:400]); return 1
     probs = sorted(((p["value"], p["probability"]) for p in ans.get("probabilities", [])), key=lambda x: -x[1])
