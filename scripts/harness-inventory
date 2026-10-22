@@ -59,17 +59,30 @@ def pi():
     return default, models, "~/.pi/agent/settings.json and `pi --list-models`"
 
 def cursor():
-    models = [l.strip().split()[0] for l in run(["cursor-agent", "--list-models"], 30).splitlines() if l.strip() and not l.lower().startswith(("available", "model"))]
+    try:
+        p = subprocess.run(["cursor-agent", "--list-models"], capture_output=True, text=True, timeout=30)
+        out = p.stdout + p.stderr
+    except Exception:
+        out = ""
+    if re.search(r"authentication required|not logged in|login", out, re.I) and "available" not in out.lower():
+        return "", [], "`cursor-agent --list-models`: not signed in (run `cursor-agent login`)"
+    models = [l.strip().split()[0] for l in out.splitlines() if l.strip() and not l.lower().startswith(("available", "model"))]
     return "", models[:40], "`cursor-agent --list-models`"
 
 def kimi():
-    default = ""
-    try:
-        m = re.search(r'^default_model\s*=\s*"([^"]+)"', open(os.path.expanduser("~/.kimi/config.toml")).read(), re.M)
+    # kimi-code keeps its config in ~/.kimi-code; older releases used ~/.kimi
+    for cfg in ("~/.kimi-code/config.toml", "~/.kimi/config.toml"):
+        try:
+            text = open(os.path.expanduser(cfg)).read()
+        except Exception:
+            continue
+        m = re.search(r'^default_model\s*=\s*"([^"]+)"', text, re.M)
         default = m.group(1) if m else ""
-    except Exception:
-        pass
-    return default, [default] if default else [], "~/.kimi/config.toml"
+        models = re.findall(r'^\[models\."([^"]+)"\]', text, re.M)
+        if default and default not in models:
+            models.insert(0, default)
+        return default, models, cfg
+    return "", [], "no kimi config found"
 
 PROBES = {"claude": claude, "codex": codex, "pi": pi, "cursor-agent": cursor, "kimi": kimi}
 OTHERS = ["copilot", "gemini", "opencode", "droid", "qwen", "hermes", "agy", "grok", "kilo"]
@@ -106,7 +119,7 @@ def main():
     if "--text" in sys.argv:
         for h in inv["harnesses"]:
             ms = ", ".join(h["models"][:12]) + (" ..." if len(h["models"]) > 12 else "")
-            print(f'{h["name"]} {h["version"]}: default {h["default_model"] or "(program default)"}; models {ms or "(unknown)"}')
+            print(f'{h["name"]} {h["version"]}: default {h["default_model"] or "(program default)"}; models {ms or "(unknown: " + h["source"] + ")"}')
         return 0
     print(json.dumps(inv, indent=1)); return 0
 

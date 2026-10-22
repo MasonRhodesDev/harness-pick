@@ -146,8 +146,10 @@ def main() -> int:
     if conf is None and probs:
         conf = probs[0][1]
     print(f"pick: {ans.get('choice')} (confidence {conf:.2f})" if isinstance(conf, (int, float)) else f"pick: {ans.get('choice')}")
-    if len(probs) > 1:
-        print(f"runner-up: {probs[1][0]} ({probs[1][1]:.2f})")
+    # the runner-up is the likeliest option that is not the pick; Luna's choice is not always the top probability
+    rest = [p for p in probs if p[0] != ans.get("choice")]
+    if rest:
+        print(f"runner-up: {rest[0][0]} ({rest[0][1]:.2f})")
     if isinstance(conf, (int, float)) and conf < 0.6:
         print("low confidence: decide by the map and say so")
     u = out.get("usage", {})
