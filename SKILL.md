@@ -55,4 +55,4 @@ An OpenAI key with access to the Decisions API (`POST /v1/decisions`, model `gpt
 
 - `scripts/harness-pick`: the decider. Exit 3 means no catalog yet.
 - `scripts/harness-inventory`: the probe (claude, codex, pi, cursor-agent, kimi, and presence of others on PATH; `--text` for a readable list). Extend it with a probe when it misses an installed harness.
-- `references/`: generated on this machine, gitignored, never shipped. Delete to start over.
+- `references/`: generated on this machine, gitignored, never shipped. Delete to start over. When harnesses hold copies of this skill, the state lives in one place: `HARNESS_PICK_HOME` if set, else `~/.agents/skills/harness-pick/references` when that install exists, else this skill directory; `scripts/harness-pick --status` prints the path, and the map and log are edited there, never in a harness copy.

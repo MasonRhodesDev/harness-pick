@@ -13,7 +13,20 @@ Exit codes: 0 pick made; 1 no answer or API error (decide by the map); 2 usage o
 import json, os, re, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REFS = os.path.join(os.path.dirname(HERE), "references")
+
+def home() -> str:
+    """The skill's state lives in ONE place even when harnesses hold copies of the skill:
+    HARNESS_PICK_HOME if set, else the shared canonical install (~/.agents/skills/harness-pick) when it exists,
+    else this script's own skill directory."""
+    h = os.environ.get("HARNESS_PICK_HOME")
+    if h:
+        return os.path.expanduser(h)
+    shared = os.path.expanduser("~/.agents/skills/harness-pick")
+    if os.path.isdir(shared):
+        return os.path.realpath(shared)
+    return os.path.dirname(HERE)
+
+REFS = os.path.join(home(), "references")
 CATALOG = os.path.join(REFS, "catalog.json")
 MAP = os.path.join(REFS, "harness-selection.md")
 CONTEXT = os.path.join(REFS, "context.md")
