@@ -15,9 +15,6 @@ import json, os, re, subprocess, sys, time
 HERE = os.path.dirname(os.path.realpath(__file__))
 
 def home() -> str:
-    """The skill's state lives in ONE place even when harnesses hold copies of the skill:
-    HARNESS_PICK_HOME if set, else the shared canonical install (~/.agents/skills/harness-pick) when it exists,
-    else this script's own skill directory."""
     h = os.environ.get("HARNESS_PICK_HOME")
     if h:
         return os.path.expanduser(h)
@@ -81,7 +78,6 @@ def choices(catalog: list, inv: dict):
     return offered, "\n".join(lines)
 
 def record(task: str, ans) -> None:
-    """Every decision is appended to references/decisions.jsonl so picks accumulate without anyone copying them by hand."""
     probs = sorted(((p["value"], p["probability"]) for p in (ans or {}).get("probabilities", [])), key=lambda x: -x[1])
     row = {"at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "task": task, "pick": (ans or {}).get("choice"),
            "confidence": (ans or {}).get("confidence"), "top": probs[:3], "cwd": os.getcwd()}
@@ -159,7 +155,6 @@ def main() -> int:
     if conf is None and probs:
         conf = probs[0][1]
     print(f"pick: {ans.get('choice')} (confidence {conf:.2f})" if isinstance(conf, (int, float)) else f"pick: {ans.get('choice')}")
-    # the runner-up is the likeliest option that is not the pick; Luna's choice is not always the top probability
     rest = [p for p in probs if p[0] != ans.get("choice")]
     if rest:
         print(f"runner-up: {rest[0][0]} ({rest[0][1]:.2f})")
